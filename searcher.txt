@@ -1,0 +1,72 @@
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Int32
+import threading
+ 
+class BallSearcher(Node):
+    def __init__(self):
+        super().__init__('ball_searcher')
+        self.publisher = self.create_publisher(Twist, '/cmd_vel', 10)
+ 
+        # Abonare la topicul /ball_position
+        self.ball_sub = self.create_subscription(Int32, '/ball_position', self.ball_callback, 10)
+ 
+        self.ball_visible = False  # Variabilă pentru a determina dacă mingea este vizibilă.
+        self.stop_rotation = False  # Flag pentru oprirea rotației.
+ 
+        # Timer pentru verificare periodică a mingii
+        self.timer = self.create_timer(0.1, self.check_ball_status)
+ 
+    def ball_callback(self, msg):
+        """
+        Callback pentru actualizarea stării mingii.
+        """
+        if msg.data == -1:  # Presupunem că -1 înseamnă că mingea nu este vizibilă.
+            self.ball_visible = False
+        else:
+            self.ball_visible = True
+ 
+    def check_ball_status(self):
+        """
+        Verifică dacă mingea este vizibilă și inițiază rotația sau oprește robotul în funcție de aceasta.
+        """
+        if not self.ball_visible:  # Mingea nu este vizibilă.
+            self.rotate_360()
+        elif self.ball_visible:  # Mingea este vizibilă.
+            self.stop_robot()
+ 
+    def rotate_360(self):
+        """
+        Rotește robotul la 360 de grade continuu.
+        """
+        self.get_logger().info("Mingea nu este vizibilă. Rotire 360 de grade...")
+ 
+        # Comanda de rotație
+        twist = Twist()
+        twist.angular.z = 0.5  # Setezi viteza unghiulară (pozitiv pentru rotație la stânga).
+        self.publisher.publish(twist)  # Robotul va continua să se rotească până când mingea este detectată.
+ 
+    def stop_robot(self):
+        """
+        Oprește robotul atunci când mingea este detectată.
+        """
+        self.get_logger().info("Mingea este vizibilă. Oprire robot...")
+        twist = Twist()
+        twist.linear.x = 0.0  # Oprește mișcarea înainte/înapoi.
+        twist.angular.z = 0.0  # Oprește rotația.
+        self.publisher.publish(twist)  # Opresc mișcarea și rotația.
+ 
+def main(args=None):
+    rclpy.init(args=args)
+    node = BallSearcher()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+ 
+if __name__ == '__main__':
+    main()

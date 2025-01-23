@@ -1,0 +1,122 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from geometry_msgs.msg import Point
+from cv_bridge import CvBridge, CvBridgeError
+import ball_tracker.process_image as proc
+ 
+ 
+class Culoare(Node):
+ 
+    def __init__(self):
+        super().__init__('culoare')
+ 
+        self.get_logger().info('Looking for the specified color...')
+ 
+        # Parametri impliciți
+        self.declare_parameter('tuning_mode', True)  # Implicit: activăm modul de tuning
+        self.declare_parameter('image_in', '/camera/image_raw')  # Implicit: topic-ul camerei
+        self.declare_parameter('image_out', '/image_out')  # Topic de ieșire imagine procesată
+        self.declare_parameter('image_tuning', '/image_tuning')  # Topic pentru imagine tuning
+        self.declare_parameter('detected_ball', '/detected_ball')  # Topic pentru mingea detectată
+ 
+        # Parametri HSV și alții
+        self.declare_parameter("x_min", 0)
+        self.declare_parameter("x_max", 100)
+        self.declare_parameter("y_min", 0)
+        self.declare_parameter("y_max", 100)
+        self.declare_parameter("h_min", 0)
+        self.declare_parameter("h_max", 180)
+        self.declare_parameter("s_min", 0)
+        self.declare_parameter("s_max", 255)
+        self.declare_parameter("v_min", 0)
+        self.declare_parameter("v_max", 255)
+        self.declare_parameter("sz_min", 0)
+        self.declare_parameter("sz_max", 100)
+ 
+        # Obțineți parametrii
+        self.tuning_mode = self.get_parameter('tuning_mode').get_parameter_value().bool_value
+        input_topic = self.get_parameter('image_in').get_parameter_value().string_value
+        output_topic = self.get_parameter('image_out').get_parameter_value().string_value
+        tuning_topic = self.get_parameter('image_tuning').get_parameter_value().string_value
+        ball_topic = self.get_parameter('detected_ball').get_parameter_value().string_value
+ 
+        # Configurare topicuri
+        self.image_sub = self.create_subscription(Image, input_topic, self.callback, rclpy.qos.QoSPresetProfiles.SENSOR_DATA.value)
+        self.image_out_pub = self.create_publisher(Image, output_topic, 1)
+        self.image_tuning_pub = self.create_publisher(Image, tuning_topic, 1)
+        self.ball_pub = self.create_publisher(Point, ball_topic, 1)
+ 
+        # Parametrii tuning
+        self.tuning_params = {
+            'x_min': self.get_parameter('x_min').get_parameter_value().integer_value,
+            'x_max': self.get_parameter('x_max').get_parameter_value().integer_value,
+            'y_min': self.get_parameter('y_min').get_parameter_value().integer_value,
+            'y_max': self.get_parameter('y_max').get_parameter_value().integer_value,
+            'h_min': self.get_parameter('h_min').get_parameter_value().integer_value,
+            'h_max': self.get_parameter('h_max').get_parameter_value().integer_value,
+            's_min': self.get_parameter('s_min').get_parameter_value().integer_value,
+            's_max': self.get_parameter('s_max').get_parameter_value().integer_value,
+            'v_min': self.get_parameter('v_min').get_parameter_value().integer_value,
+            'v_max': self.get_parameter('v_max').get_parameter_value().integer_value,
+            'sz_min': self.get_parameter('sz_min').get_parameter_value().integer_value,
+            'sz_max': self.get_parameter('sz_max').get_parameter_value().integer_value
+        }
+ 
+        # Configurare fereastră tuning
+        self.bridge = CvBridge()
+        if self.tuning_mode:
+            proc.create_tuning_window(self.tuning_params)
+ 
+    def callback(self, data):
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+        except CvBridgeError as e:
+            self.get_logger().error(f"CVBridge Error: {e}")
+            return
+ 
+        try:
+            if self.tuning_mode:
+                self.tuning_params = proc.get_tuning_params()
+ 
+            keypoints_norm, out_image, tuning_image = proc.find_circles(cv_image, self.tuning_params)
+ 
+            img_to_pub = self.bridge.cv2_to_imgmsg(out_image, "bgr8")
+            img_to_pub.header = data.header
+            self.image_out_pub.publish(img_to_pub)
+ 
+            img_to_pub = self.bridge.cv2_to_imgmsg(tuning_image, "bgr8")
+            img_to_pub.header = data.header
+            self.image_tuning_pub.publish(img_to_pub)
+ 
+            point_out = Point()
+ 
+            # Păstrăm cel mai mare punct
+            for i, kp in enumerate(keypoints_norm):
+                x = kp.pt[0]
+                y = kp.pt[1]
+                s = kp.size
+ 
+                self.get_logger().info(f"Pt {i}: ({x},{y},{s})")
+ 
+                if s > point_out.z:
+                    point_out.x = x
+                    point_out.y = y
+                    point_out.z = s
+ 
+            if point_out.z > 0:
+                self.ball_pub.publish(point_out)
+        except CvBridgeError as e:
+            self.get_logger().error(f"CVBridge Error: {e}")
+ 
+ 
+def main(args=None):
+    rclpy.init(args=args)
+ 
+    nodo_culoare = Culoare()
+    while rclpy.ok():
+        rclpy.spin_once(nodo_culoare)
+        proc.wait_on_gui()
+ 
+    nodo_culoare.destroy_node()
+    rclpy.shutdown()

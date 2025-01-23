@@ -1,0 +1,56 @@
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Int32
+from geometry_msgs.msg import Twist
+import math
+ 
+class BallFollower(Node):
+    def __init__(self):
+        super().__init__('ball_follower')
+        self.ball_sub = self.create_subscription(Int32, '/ball_position', self.ball_callback, 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.stop_distance = 5 # Distanța minimă la care se oprește (în metri)
+        self.width = 640  # Lățimea imaginii
+        self.focal_length = 500  # Lungimea focală a camerei (exemplu)
+        self.real_ball_diameter = 0.2  # Diametrul real al mingii (metri)
+ 
+    def ball_callback(self, msg):
+        cx = msg.data
+        cmd_vel = Twist()
+ 
+        if cx == -1:  # Mingea nu este detectată
+            self.cmd_vel_pub.publish(cmd_vel)
+        else:
+            error = cx - self.width // 2
+            cmd_vel.angular.z = -error * 0.002
+ 
+            # Estimarea distanței
+            distance = self.estimate_distance(cx)
+            self.get_logger().info(f'Distanța față de minge: {distance:.2f} metri')
+ 
+            # Mișcare înainte
+            if distance > self.stop_distance:  # Dacă distanța estimată este mai mare decât stop_distance
+                cmd_vel.linear.x = 0.5  # Mișcare înainte
+            else:
+                cmd_vel.linear.x = 0.0  # Oprește robotul dacă distanța este mai mică decât stop_distance
+ 
+            self.cmd_vel_pub.publish(cmd_vel)
+ 
+    def estimate_distance(self, cx):
+        # Calculul estimativ al distanței pe baza poziției în imagine
+        error = abs(cx - self.width // 2)
+        if error == 0:
+            return 9999  # Distanta mare, care indică că mingea este centrată
+        # Estimarea distanței folosind o formulă simplificată
+        distance = self.focal_length * self.real_ball_diameter / error
+        return distance
+ 
+def main(args=None):
+    rclpy.init(args=args)
+    node = BallFollower()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+ 
+if __name__ == '__main__':
+    main()

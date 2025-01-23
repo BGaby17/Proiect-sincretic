@@ -1,0 +1,48 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from std_msgs.msg import Int32
+from cv_bridge import CvBridge
+import cv2
+import numpy as np
+ 
+class BallDetector(Node):
+    def __init__(self):
+        super().__init__('ball_detector')
+        self.bridge = CvBridge()
+        self.image_sub = self.create_subscription(
+            Image, '/camera/image_raw', self.image_callback, 10)
+        self.ball_pub = self.create_publisher(Int32, '/ball_position', 10)
+        self.ball_visible_pub = self.create_publisher(Int32, '/ball_visible', 10)  # Publisher pentru semnalul de vizibilitate
+ 
+    def image_callback(self, msg):
+        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+        mask = self.detect_green_ball(frame)
+        moments = cv2.moments(mask)
+ 
+        if moments['m00'] > 0:  # Mingea detectată
+            cx = int(moments['m10'] / moments['m00'])
+            self.ball_pub.publish(Int32(data=cx))
+            self.ball_visible_pub.publish(Int32(data=1))  # Semnal că mingea este detectată
+            self.get_logger().info('Minge detectată la poziția: %d' % cx)
+        else:
+            self.ball_pub.publish(Int32(data=-1))  # Semnal pentru "mingea nu este detectată"
+            self.ball_visible_pub.publish(Int32(data=0))  # Semnal că mingea nu este vizibilă
+            self.get_logger().info('Minge nu este detectată')
+ 
+    @staticmethod
+    def detect_green_ball(frame):
+        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        lower_green = np.array([45, 0, 0])
+        upper_green = np.array([70, 255, 255])
+        return cv2.inRange(hsv_frame, lower_green, upper_green)
+ 
+def main(args=None):
+    rclpy.init(args=args)
+    node = BallDetector()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+ 
+if __name__ == '__main__':
+    main()

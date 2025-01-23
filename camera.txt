@@ -1,0 +1,48 @@
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import cv2
+ 
+class CameraSubscriber(Node):
+    def __init__(self):
+        super().__init__('camera_subscriber')
+ 
+        # Abonăm la topicul care publică imagini (de obicei "/camera/image_raw")
+        self.subscription = self.create_subscription(
+            Image,
+            '/camera/image_raw',  # Acesta este topicul tipic pentru imagini
+            self.listener_callback,
+            10
+        )
+ 
+        # Inițializare CvBridge pentru a transforma mesajele ROS în imagini OpenCV
+        self.bridge = CvBridge()
+        self.get_logger().info("Abonat la topicul /camera/image_raw")
+ 
+    def listener_callback(self, msg):
+        try:
+            # Convertim imaginea ROS într-un format OpenCV
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+ 
+            # Afișăm imaginea utilizând OpenCV
+            cv2.imshow("Camera Image", cv_image)
+            cv2.waitKey(1)
+        except Exception as e:
+            self.get_logger().error(f"Eroare la conversia imaginii: {e}")
+ 
+def main(args=None):
+    rclpy.init(args=args)
+ 
+    # Creăm instanța nodului
+    camera_subscriber = CameraSubscriber()
+ 
+    # Rulăm ROS 2
+    rclpy.spin(camera_subscriber)
+ 
+    # Închidem ROS 2
+    camera_subscriber.destroy_node()
+    rclpy.shutdown()
+ 
+if __name__ == '__main__':
+    main()
